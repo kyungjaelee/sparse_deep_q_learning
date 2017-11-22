@@ -76,6 +76,7 @@ class Experiments:
         self.policy_func=policy_func
         self.session = session
         self.config = config
+        self.scale = scale
         
         
     def get_action_information(self, env, env_name, action_res=None):

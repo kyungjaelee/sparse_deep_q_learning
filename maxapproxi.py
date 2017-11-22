@@ -16,33 +16,40 @@ def logsumexp(x, scale = 1):
     lse_x = scale*lse_x
     return lse_x
 
-def sparsetau(x):
-    x = np.array(x)
-    sorted_x = np.sort(x)[::-1]
-    S = np.array([])
-    for i in range(0,len(x)):
-        if 1+(i+1)*sorted_x[i]>=(sorted_x[0:(i+1)]).sum():
-            S = np.append(S,sorted_x[i])
-    tau = (S.sum() - 1)/S.size
-    return tau, S
+def sparsedist(z, scale=1.):
+    z = np.array(z/scale)
+    if len(z.shape) == 1:
+        z = np.reshape(z,(1,-1))
+    z = z - np.mean(z, axis=1)[:, np.newaxis]
 
-def sparsedist(x, scale = 1):
-    x = np.array(x/scale)
-    tau, _ = sparsetau(x)
-    p = x - tau
-    p[p<0] = 0
-    if p.sum() > 0.0:
-        p = p/p.sum()
-    else:
-        p = np.ones_like(x)/x.shape[0];
-    return p
+    # sort z
+    z_sorted = np.sort(z, axis=1)[:, ::-1]
 
-def sparsemax(x,scale = 1):
-    x = np.array(x/scale)
-    tau, S = sparsetau(x)
-    spmax_x = 0.5*(S**2 - tau**2).sum() + 0.5
-    spmax_x = scale*spmax_x
-    return spmax_x
+    # calculate k(z)
+    z_cumsum = np.cumsum(z_sorted, axis=1)
+    k = np.arange(1, z.shape[1] + 1)
+    z_check = 1 + k * z_sorted > z_cumsum
+    k_z = z.shape[1] - np.argmax(z_check[:, ::-1], axis=1)
+
+    # calculate tau(z)
+    tau_sum = z_cumsum[np.arange(0, z.shape[0]), k_z - 1]
+    tau_z = ((tau_sum - 1) / k_z).reshape(-1, 1)
+
+    # calculate p
+    p = np.maximum(0, z - tau_z)
+    return p 
+
+def sparsemax(z, scale=1.):
+    z = np.array(z/scale)    
+    z = z - np.mean(z, axis=1)[:, np.newaxis]
+
+    # calculate sum over S(z)
+    p = sparsedist(z)
+    s = p > 0
+    # z_i^2 - tau(z)^2 = p_i (2 * z_i - p_i) for i \in S(z)
+    S_sum = np.sum(s * p * (2 * z - p), axis=1)
+
+    return 0.5 * S_sum + 0.5
 
 if __name__ == '__main__':
     print("Main Started")

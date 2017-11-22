@@ -25,11 +25,12 @@ class Policy:
             elif self.strategy == "Softmax":
                 softmax_policy = maxapproxi.softmax(q_value, scale=self.scale)
                 policy = np.ones(self.n_action) * self.eps / self.n_action + softmax_policy * (1. - self.eps)
-                policy = policy/np.sum(policy)
             elif self.strategy == "Sparsemax":
-                softmax_policy = maxapproxi.sparsedist(q_value, scale=self.scale)
-                policy = np.ones(self.n_action) * self.eps / self.n_action + softmax_policy * (1. - self.eps)
-                policy = policy/np.sum(policy)
+                sparsemax_policy = maxapproxi.sparsedist(q_value, scale=self.scale)
+                sparsemax_policy = np.reshape(sparsemax_policy,(-1,))
+                policy = np.ones(self.n_action) * self.eps / self.n_action + sparsemax_policy * (1. - self.eps)
+            
+            policy = policy/np.sum(policy)
             action = self.rng.choice(self.n_action, p=policy)
         else:
             if self.strategy == "Random":
@@ -42,6 +43,9 @@ class Policy:
                 policy = maxapproxi.softmax(q_value, scale=self.scale)
             elif self.strategy == "Sparsemax":
                 policy = maxapproxi.sparsedist(q_value, scale=self.scale)
+                policy = np.reshape(policy,(-1,))
+                
+            policy = policy/np.sum(policy)
             action = self.rng.choice(self.n_action, p=policy)
         
         return(action)
