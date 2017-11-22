@@ -228,3 +228,43 @@ class Experiments:
             if ((epi+1)%display_period)==0:
                 print('[{}/{}] Avg Total Reward {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,np.mean(return_list[epi-display_period+1:epi+1]),total_v_loss,policy_func.eps))
         return return_list
+    
+    def evaluation(self,max_eval_epi=100):
+        env = self.env
+        
+        value_func = self.value_func
+        policy_func = self.policy_func
+        session = self.session
+        conti_action_flag = self.conti_action_flag
+        action_map = self.action_map
+        n_action=self.n_action
+        
+        return_list = np.zeros((max_eval_epi,))
+        
+        policy_func.explore = False
+        env.seed(self.seed)
+        for epi in range(max_eval_epi):
+            obs = env.reset()
+
+            total_reward = 0
+            done = False
+            while not done:
+                fetches, feeds = value_func.get_predictions([obs])
+                q_value, = session.run(fetches=fetches,feed_dict=feeds)
+                q_value = q_value[0]
+
+                action = policy_func.get_action(q_value)
+                if conti_action_flag:
+                    action_val = action_map[action]
+                else:
+                    action_val = action
+
+                next_obs, reward, done, _ = env.step(action_val)
+                total_reward += reward
+                obs = next_obs
+            return_list[epi] = total_reward
+        print("Evaluation Result: {}".format(np.mean(return_list)))
+        return return_list
+        
+        
+        

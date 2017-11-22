@@ -1,4 +1,5 @@
 import numpy as np
+import maxapproxi
 
 class Policy:
     def __init__(self, n_action, rng=None, strategy="Random",scale = 1., eps_init=1.,eps_decay_rate=0.995):
@@ -26,7 +27,7 @@ class Policy:
                 policy = np.ones(self.n_action) * self.eps / self.n_action + softmax_policy * (1. - self.eps)
                 policy = policy/np.sum(policy)
             elif self.strategy == "Sparsemax":
-                softmax_policy = maxapproxi.sparsemax(q_value, scale=self.scale)
+                softmax_policy = maxapproxi.sparsedist(q_value, scale=self.scale)
                 policy = np.ones(self.n_action) * self.eps / self.n_action + softmax_policy * (1. - self.eps)
                 policy = policy/np.sum(policy)
             action = self.rng.choice(self.n_action, p=policy)
@@ -40,7 +41,7 @@ class Policy:
             elif self.strategy == "Softmax":
                 policy = maxapproxi.softmax(q_value, scale=self.scale)
             elif self.strategy == "Sparsemax":
-                policy = maxapproxi.sparsemax(q_value, scale=self.scale)
+                policy = maxapproxi.sparsedist(q_value, scale=self.scale)
             action = self.rng.choice(self.n_action, p=policy)
         
         return(action)
