@@ -19,7 +19,7 @@ class MultiGoalEnv(gym.Env):
         self.dynamics = PointDynamics(dim=2, sigma=0)
         self.init_mu = np.array((0, 0), dtype=np.float32)
         self.init_sigma = 0.
-        self.max_time_step = 10
+        self.max_time_step = 20
         
         self.nr_goal = nr_goal
         radius = 2.
@@ -59,13 +59,13 @@ class MultiGoalEnv(gym.Env):
             )
         
         self.goal_positions = goal_positions
-        self.cost_scale = .5
+        self.cost_scale = .2
         
-        self.goal_threshold = .1
-        self.goal_reward = goal_reward
-        self.action_cost_coeff = 2.
-        self.reward_bias = 10
-        self.vel_bound = 3*radius/self.max_time_step
+        self.goal_threshold = .25
+        self.goal_reward = goal_reward*0
+        self.action_cost_coeff = 0.
+        self.reward_bias = 0.
+        self.vel_bound = self.max_x/self.max_time_step
         
         self.action_space = spaces.Box(-self.vel_bound,self.vel_bound,shape=(2,))
         self.observation_space = spaces.Box(self.low, self.high)
@@ -89,7 +89,7 @@ class MultiGoalEnv(gym.Env):
         o_ub = self.observation_space.high
         next_obs = np.clip(next_obs, o_lb, o_ub)
 
-        reward = self.compute_reward(self.observation, action)
+        reward = self.compute_reward(self.observation, action) - 0.5
         cur_position = self.observation
         dist_to_goal_list = [
             np.linalg.norm(cur_position - goal_position)
@@ -128,7 +128,7 @@ class MultiGoalEnv(gym.Env):
             np.arange(x_min, x_max, delta),
             np.arange(y_min, y_max, delta)
         )
-        reward = np.exp(-0.5*np.amin([
+        reward = 100*np.exp(-0.5*np.amin([
             (X - goal_x) ** 2 + (Y - goal_y) ** 2
             for goal_x, goal_y in self.goal_positions
         ], axis=0)/self.cost_scale) - self.reward_bias
@@ -165,7 +165,7 @@ class MultiGoalEnv(gym.Env):
         # penalize squared dist to goal
         cur_position = observation
         # noinspection PyTypeChecker
-        goal_reward = 10*np.exp(-0.5*np.amin([
+        goal_reward = 100*np.exp(-0.5*np.amin([
             np.sum((cur_position - goal_position) ** 2)
             for goal_position in self.goal_positions
         ])/self.cost_scale) - self.reward_bias
