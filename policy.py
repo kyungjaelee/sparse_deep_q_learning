@@ -11,6 +11,7 @@ class Policy:
         self.scale = scale
         self.eps = eps_init
         self.eps_decay_rate = eps_decay_rate
+        self.eps_min = 0.00
         self.strategy = strategy
         self.explore = True
     
@@ -51,4 +52,4 @@ class Policy:
         return(action)
     
     def update_policy(self):
-        self.eps = self.eps*self.eps_decay_rate
+        self.eps = np.max((self.eps*self.eps_decay_rate,self.eps_min))

@@ -8,7 +8,7 @@ import tensorflow as tf
 
 class Experiments:
     def __init__(self, seed=0, env_name = 'CartPole-v1', action_res=None, dqn_hidden_spec=None, batch_size = 128, learning_rate=1e-3,
-                discount = 0.99, max_epi = 500, max_step = 1000, target_update_period = 5,
+                discount = 0.99, max_epi = 500, max_train = 50, max_step = 1000, target_update_period = 5,
                 replay_memory_size = 10000, eps_decay_rate=0.999, scale=1.,
                 strategy="Epsilon", backuprule="Bellman"):
         # Fix the numpy random seed
@@ -16,6 +16,7 @@ class Experiments:
         
         # Gen environment
         env = gym.make(env_name)
+        eval_env = gym.make(env_name)
         
         # Get environment information
         observ_dim = env.observation_space.high.shape[0]
@@ -60,6 +61,7 @@ class Experiments:
         self.discount=discount
         self.max_epi=max_epi
         self.max_step=max_step
+        self.max_train = max_train
         self.target_update_period=target_update_period
         self.replay_memory_size=replay_memory_size
         self.eps_decay_rate=eps_decay_rate
@@ -72,6 +74,7 @@ class Experiments:
         self.action_map=action_map
         
         self.env=env
+        self.eval_env=eval_env
         self.value_func=value_func
         self.replay_memory=replay_memory
         self.policy_func=policy_func
@@ -154,9 +157,11 @@ class Experiments:
 
     def run(self, display_period=10):
         env = self.env
+        eval_env = self.eval_env
         
         max_epi = self.max_epi
         max_step = self.max_step
+        max_train = self.max_train
         value_func = self.value_func
         replay_memory = self.replay_memory
         policy_func = self.policy_func
@@ -168,23 +173,27 @@ class Experiments:
         n_action=self.n_action
         backuprule=self.backuprule
         
-        global_step = 0
-        return_list = np.zeros((max_epi,))
+        rollout_return_list = np.zeros((max_epi,))
+        eval_return_list = np.zeros((max_epi,))
+        max_return = -np.inf
 
         env.seed(self.seed)
-        max_return = -np.inf
+        eval_env.seed(self.seed)
+        
+        epi = 0
+        global_step = 0
         for epi in range(max_epi):
-            #Training Phase
-            obs = env.reset()
-
-            total_reward = 0
-            total_v_loss = 0
+            #Rollout Phase
+            obs = env.reset()            
             done = False
+            policy_func.explore = True
+            total_reward = 0
             for step in range(max_step):
-
+                
                 if done:
-                    break
-
+                    obs = env.reset()
+                    done = False
+                    
                 fetches, feeds = value_func.get_predictions([obs])
                 q_value, = session.run(fetches=fetches,feed_dict=feeds)
                 q_value = q_value[0]
@@ -199,12 +208,17 @@ class Experiments:
                 total_reward += reward
                 replay_memory.save_experience(obs, action, reward, next_obs, done)
                 obs = next_obs
+                policy_func.update_policy()
                 
-                batch_size = self.batch_size
-                
-                replay_memory.anneal_per_importance_sampling(step,max_step)
-                if replay_memory.memory.n_entries > batch_size:
-#                     batch_size = replay_memory.memory.n_entries
+            rollout_return_list[epi] = total_reward
+            if (epi%target_update_period)==0:
+                session.run(value_func.update_ops)
+            
+            total_v_loss = 0
+            batch_size = self.batch_size
+            if replay_memory.memory.n_entries > batch_size:
+                for step_train in range(max_train):
+                    replay_memory.anneal_per_importance_sampling(step_train,max_train)
                     
                     idx, priorities, w, experience = replay_memory.retrieve_experience(batch_size)
 
@@ -234,26 +248,41 @@ class Experiments:
                     errors = errors[np.arange(len(errors)), actions_b]
 
                     replay_memory.update_experience_weight(idx, errors)
-                    total_v_loss += v_loss
-                    
-                policy_func.update_policy()
-                global_step += 1
-                if (global_step%target_update_period)==0:
-                    session.run(value_func.update_ops)
+                    total_v_loss += v_loss                    
             
+            total_reward = 0
+            obs = eval_env.reset()      
+            done = False
+            policy_func.explore = False
+            while not done:
+                fetches, feeds = value_func.get_predictions([obs])
+                q_value, = session.run(fetches=fetches,feed_dict=feeds)
+                q_value = q_value[0]
+
+                action = policy_func.get_action(q_value)
+                if conti_action_flag:
+                    action_val = action_map[action]
+                else:
+                    action_val = action
+
+                next_obs, reward, done, _ = eval_env.step(action_val)
+                total_reward += reward
+                obs = next_obs
+            eval_return_list[epi] = total_reward
             
-            
-            return_list[epi] = total_reward
-            if epi < 100-1:
-                avg_return = np.mean(return_list[:epi+1])
+            if epi < 99:
+                rollout_return = np.mean(rollout_return_list[:epi+1])
+                eval_return = np.mean(eval_return_list[:epi+1])
             else:
-                avg_return = np.mean(return_list[epi-100+1:epi+1])
+                rollout_return = np.mean(rollout_return_list[epi-99:epi])
+                eval_return = np.mean(eval_return_list[epi-99:epi])
             
-            if epi >= display_period-1 and max_return < avg_return:
-                max_return = avg_return
+            if epi >= 99 and max_return < rollout_return:
+                max_return = rollout_return
+                
             if ((epi+1)%display_period)==0:
-                print('[{}/{}] Avg Return {}, Max Return {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,avg_return,max_return,total_v_loss,policy_func.eps))
-        return return_list, max_return
+                print('[{}/{}] Rollout Return {}, Eval Return {}, Max Return {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,rollout_return, eval_return,max_return,total_v_loss,policy_func.eps))
+        return rollout_return_list, eval_return_list
     
     def evaluation(self,max_eval_epi=100):
         env = self.env
