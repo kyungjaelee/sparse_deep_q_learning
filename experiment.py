@@ -8,7 +8,8 @@ import tensorflow as tf
 
 class Experiments:
     def __init__(self, seed=0, env_name = 'CartPole-v1', action_res=None, dqn_hidden_spec=None, batch_size = 128, learning_rate=1e-3,
-                discount = 0.99, max_epi = 500, max_step = 1000, target_update_period = 5, replay_memory_size = 10000, eps_decay_rate=0.999, scale=1.,
+                discount = 0.99, max_epi = 500, max_step = 1000, target_update_period = 5,
+                replay_memory_size = 10000, eps_decay_rate=0.999, scale=1.,
                 strategy="Epsilon", backuprule="Bellman"):
         # Fix the numpy random seed
         rng = np.random.RandomState(seed)
@@ -154,7 +155,6 @@ class Experiments:
         session = self.session
         conti_action_flag = self.conti_action_flag
         action_map = self.action_map
-        batch_size = self.batch_size
         target_update_period=self.target_update_period
         discount=self.discount
         n_action=self.n_action
@@ -163,6 +163,7 @@ class Experiments:
         return_list = np.zeros((max_epi,))
 
         env.seed(self.seed)
+        max_return = -np.inf
         for epi in range(max_epi):
             obs = env.reset()
 
@@ -185,12 +186,15 @@ class Experiments:
                 else:
                     action_val = action
 
-                next_obs, reward, done, _ = env.step(action_val)
+                next_obs, reward, done, info = env.step(action_val)
                 total_reward += reward
                 replay_memory.save_experience(obs, action, reward, next_obs, done)
                 obs = next_obs
-
+                
+                batch_size = self.batch_size
                 if replay_memory.memory.n_entries > batch_size:
+#                     batch_size = replay_memory.memory.n_entries
+                    
                     idx, priorities, w, experience = replay_memory.retrieve_experience(batch_size)
 
                     states_b, actions_b, rewards_b, states_n_b, done_b = self.format_experience(experience)
@@ -220,19 +224,27 @@ class Experiments:
 
                     replay_memory.update_experience_weight(idx, errors)
                     total_v_loss += v_loss
-
+                
                 policy_func.update_policy()
                 if (epi%target_update_period)==0:
                     session.run(value_func.update_ops)
 
             return_list[epi] = total_reward
+            if epi < display_period-1:
+                avg_return = np.mean(return_list)
+            else:
+                avg_return = np.mean(return_list[epi-display_period+1:epi+1])
+            
+            if epi >= display_period-1 and max_return < avg_return:
+                max_return = avg_return
             if ((epi+1)%display_period)==0:
-                print('[{}/{}] Avg Total Reward {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,np.mean(return_list[epi-display_period+1:epi+1]),total_v_loss,policy_func.eps))
-        return return_list
+                print('[{}/{}] Avg Return {}, Max Return {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,avg_return,max_return,total_v_loss,policy_func.eps))
+        return return_list, max_return
     
     def evaluation(self,max_eval_epi=100):
         env = self.env
         
+        max_step = self.max_step
         value_func = self.value_func
         policy_func = self.policy_func
         session = self.session
