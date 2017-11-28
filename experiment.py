@@ -16,6 +16,7 @@ class Experiments:
         
         # Gen environment
         env = gym.make(env_name)
+        eval_env = gym.make(env_name)
         
         # Get environment information
         observ_dim = env.observation_space.high.shape[0]
@@ -72,6 +73,7 @@ class Experiments:
         self.action_map=action_map
         
         self.env=env
+        self.eval_env=eval_env
         self.value_func=value_func
         self.replay_memory=replay_memory
         self.policy_func=policy_func
@@ -154,6 +156,7 @@ class Experiments:
 
     def run(self, display_period=10):
         env = self.env
+        eval_env = self.eval_env
         
         max_epi = self.max_epi
         max_step = self.max_step
@@ -172,14 +175,16 @@ class Experiments:
         return_list = np.zeros((max_epi,))
 
         env.seed(self.seed)
+        eval_env.seed(self.seed)
+        
         max_return = -np.inf
         for epi in range(max_epi):
             #Training Phase
-            obs = env.reset()
-
-            total_reward = 0
+            policy_func.explore = True
             total_v_loss = 0
             done = False
+            obs = env.reset()
+            
             for step in range(max_step):
 
                 if done:
@@ -195,8 +200,7 @@ class Experiments:
                 else:
                     action_val = action
 
-                next_obs, reward, done, info = env.step(action_val)
-                total_reward += reward
+                next_obs, reward, done, info = env.step([action_val])
                 replay_memory.save_experience(obs, action, reward, next_obs, done)
                 obs = next_obs
                 
@@ -241,7 +245,27 @@ class Experiments:
                 if (global_step%target_update_period)==0:
                     session.run(value_func.update_ops)
             
+            policy_func.explore = False
+            total_reward = 0
+            done = False
+            obs = eval_env.reset()
+            while not done:
+                fetches, feeds = value_func.get_predictions([obs])
+                q_value, = session.run(fetches=fetches,feed_dict=feeds)
+                q_value = q_value[0]
+
+                action = policy_func.get_action(q_value)
+                if conti_action_flag:
+                    action_val = action_map[action]
+                else:
+                    action_val = action
+
+                next_obs, reward, done, _ = eval_env.step([action_val])
+                total_reward += reward
+                obs = next_obs
             
+            if (epi+1%100)==0:
+                eval_env.seed(self.seed)                
             
             return_list[epi] = total_reward
             if epi < 100-1:
@@ -286,7 +310,7 @@ class Experiments:
                 else:
                     action_val = action
 
-                next_obs, reward, done, _ = env.step(action_val)
+                next_obs, reward, done, _ = env.step([action_val])
                 total_reward += reward
                 obs = next_obs
             return_list[epi] = total_reward
