@@ -1,4 +1,5 @@
 import gym
+from gym import wrappers
 import policy
 import maxapproxi
 import network
@@ -7,7 +8,8 @@ import numpy as np
 import tensorflow as tf
 
 class Experiments:
-    def __init__(self, seed=0, env_name = 'CartPole-v1', action_res=None, dqn_hidden_spec=None, batch_size = 128, learning_rate=1e-3,
+    def __init__(self, seed=0, env_name = 'CartPole-v1', action_res=None, dqn_hidden_spec=None, batch_size = 128, 
+                learning_rate=1e-3, sub_opt_max=1,
                 discount = 0.99, max_epi = 500, max_step = 1000, target_update_period = 5,
                 replay_memory_size = 10000, eps_decay_rate=0.999, scale=1.,
                 strategy="Epsilon", backuprule="Bellman"):
@@ -66,6 +68,7 @@ class Experiments:
         self.eps_decay_rate=eps_decay_rate
         self.strategy=strategy
         self.backuprule=backuprule
+        self.sub_opt_max=sub_opt_max
         
         self.observ_dim=observ_dim
         self.n_action=n_action
@@ -207,39 +210,43 @@ class Experiments:
                 batch_size = self.batch_size
                 
                 replay_memory.anneal_per_importance_sampling(step,max_step)
-                if replay_memory.memory.n_entries > batch_size:
+                if replay_memory.memory.n_entries >= batch_size:
 #                     batch_size = replay_memory.memory.n_entries
-                    
-                    idx, priorities, w, experience = replay_memory.retrieve_experience(batch_size)
+                    for sub_idx in range(self.sub_opt_max):
+                        idx, priorities, w, experience = replay_memory.retrieve_experience(batch_size)
 
-                    states_b, actions_b, rewards_b, states_n_b, done_b = self.format_experience(experience)
+                        states_b, actions_b, rewards_b, states_n_b, done_b = self.format_experience(experience)
 
-                    fetches, feeds = value_func.get_predictions(states_n_b)
-                    q_n_b, = session.run(fetches=fetches,feed_dict=feeds)
+                        fetches, feeds = value_func.get_predictions(states_n_b)
+                        q_n_b, = session.run(fetches=fetches,feed_dict=feeds)
 
-                    fetches, feeds = value_func.get_predictions_old(states_n_b)
-                    q_n_target_b, = session.run(fetches=fetches,feed_dict=feeds)
+                        fetches, feeds = value_func.get_predictions_old(states_n_b)
+                        q_n_target_b, = session.run(fetches=fetches,feed_dict=feeds)
 
-                    best_a = np.argmax(q_n_b, axis=1)
-                    if backuprule == 'Bellman':
-                        targets_b = rewards_b + (1. - done_b) * discount * q_n_target_b[np.arange(batch_size), best_a]
-                    elif backuprule == 'SoftBellman':
-                        targets_b = rewards_b + (1. - done_b) * discount * maxapproxi.logsumexp(q_n_target_b, scale=self.scale)
-                    elif self.backuprule == 'SparseBellman':
-                        targets_b = rewards_b + (1. - done_b) * discount * maxapproxi.sparsemax(q_n_target_b, scale=self.scale)
+                        best_a = np.argmax(q_n_b, axis=1)
+                        if backuprule == 'Bellman':
+                            targets_b = rewards_b + (1. - done_b) * discount * q_n_target_b[np.arange(batch_size), best_a]
+                        elif backuprule == 'SoftBellman':
+                            targets_b = rewards_b + (1. - done_b) * discount * maxapproxi.logsumexp(q_n_target_b, scale=self.scale)
+                        elif backuprule == 'SparseBellman':
+                            targets_b = rewards_b + (1. - done_b) * discount * maxapproxi.sparsemax(q_n_target_b, scale=self.scale)
 
-                    fetches, feeds = value_func.get_predictions(states_b)
-                    targets, = session.run(fetches=fetches,feed_dict=feeds)
-                    for j, action in enumerate(actions_b):
-                        targets[j, action] = targets_b[j]
+                        fetches, feeds = value_func.get_predictions(states_b)
+                        targets, = session.run(fetches=fetches,feed_dict=feeds)
+                        for j, action in enumerate(actions_b):
+                            targets[j, action] = targets_b[j]
 
-                    fetches, feeds = value_func.get_train(states_b,targets, np.transpose(np.tile(w, (n_action, 1))))
-                    v_loss, errors, _ = session.run(fetches=fetches,feed_dict=feeds)
-                    errors = errors[np.arange(len(errors)), actions_b]
+                        fetches, feeds = value_func.get_train(states_b,targets, np.transpose(np.tile(w, (n_action, 1))))
+                        v_loss, errors, _ = session.run(fetches=fetches,feed_dict=feeds)
+                        errors = errors[np.arange(len(errors)), actions_b]
 
-                    replay_memory.update_experience_weight(idx, errors)
-                    total_v_loss += v_loss
-                    
+                        replay_memory.update_experience_weight(idx, errors)
+                        total_v_loss += v_loss/self.sub_opt_max
+#                     if v_loss > 1e+5:
+#                         print(q_n_target_b.shape)
+#                         print(q_n_target_b)
+#                         print(rewards_b)
+                
                 policy_func.update_policy()
                 global_step += 1
                 if (global_step%target_update_period)==0:
@@ -264,7 +271,7 @@ class Experiments:
                 total_reward += reward
                 obs = next_obs
             
-            if (epi+1%100)==0:
+            if ((epi+1)%100)==0:
                 eval_env.seed(self.seed)                
             
             return_list[epi] = total_reward
@@ -277,10 +284,15 @@ class Experiments:
                 max_return = avg_return
             if ((epi+1)%display_period)==0:
                 print('[{}/{}] Avg Return {}, Max Return {}, DQN Loss {}, Epsilon {}'.format(epi+1,max_epi,avg_return,max_return,total_v_loss,policy_func.eps))
+            env.close()
         return return_list, max_return
     
-    def evaluation(self,max_eval_epi=100):
-        env = self.env
+    def evaluation(self,max_eval_epi=100, video_record=False):
+        env = self.eval_env
+        if video_record:
+            def _video_scheduler(episode_id):
+                return True
+            env=wrappers.Monitor(env, "/home/guest/gitproject/sparse_deep_q_learning/"+self.env_name+"/"+self.strategy+"_"+self.backuprule, video_callable=_video_scheduler, force=True)
         
         max_step = self.max_step
         value_func = self.value_func
@@ -314,6 +326,7 @@ class Experiments:
                 total_reward += reward
                 obs = next_obs
             return_list[epi] = total_reward
+        env.close()
         print("Evaluation Result: {}".format(np.mean(return_list)))
         return return_list
         
