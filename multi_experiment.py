@@ -8,7 +8,7 @@ import tensorflow as tf
 import multigoal
 
 class Experiments:
-    def __init__(self, seed=0, action_res=None, dqn_hidden_spec=None, batch_size = 128, learning_rate=1e-3,
+    def __init__(self, nr_goal=4, seed=0, action_res=None, dqn_hidden_spec=None, batch_size = 128, learning_rate=1e-3,
                 discount = 0.99, max_epi = 500, max_step = 1000, target_update_period = 5, replay_memory_size = 10000, eps_decay_rate=0.999, scale=1.,
                 strategy="Epsilon", backuprule="Bellman"):
         # Fix the numpy random seed
@@ -16,7 +16,7 @@ class Experiments:
         
         # Gen environment
         env_name = "MultiGoal-v0"
-        env = multigoal.MultiGoalEnv()
+        env = multigoal.MultiGoalEnv(nr_goal=nr_goal)
         
         # Get environment information
         observ_dim = env.observation_space.high.shape[0]
