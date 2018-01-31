@@ -16,7 +16,7 @@ class MultiGoalEnv(gym.Env):
         self.low = np.array([self.min_x, self.min_y])
         self.high = np.array([self.max_x, self.max_y])
 
-        self.dynamics = PointDynamics(dim=2, sigma=0)
+        self.dynamics = PointDynamics(dim=2, sigma=0.09)
         self.init_mu = np.array((0, 0), dtype=np.float32)
         self.init_sigma = 0.
         self.max_time_step = 20

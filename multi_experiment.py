@@ -280,6 +280,54 @@ class Experiments:
             return_list[epi] = total_reward
         print("Evaluation Result: {}".format(np.mean(return_list)))
         return return_list, info_list
+    def demonstrations(self,max_demo=100):
+        env = self.env
         
+        value_func = self.value_func
+        policy_func = self.policy_func
+        session = self.session
+        conti_action_flag = self.conti_action_flag
+        action_map = self.action_map
+        n_action=self.n_action
+        max_step=self.max_step
+        
+        policy_func.explore = False
+        env.seed(self.seed)
+        
+        demonstrations = []
+        for epi in range(max_demo):
+            obs = env.reset()
+            
+            demonstration = {'observes':[],'actions':[],'rewards':[],'dones':[],'infos':[]}
+            
+            total_reward = 0
+            done = False
+            for step in range(max_step):
+                if done:
+                    break
+                    
+                fetches, feeds = value_func.get_predictions([obs])
+                q_value, = session.run(fetches=fetches,feed_dict=feeds)
+                q_value = q_value[0]
+
+                action = policy_func.get_action(q_value)
+                if conti_action_flag:
+                    action_val = action_map[action]
+                else:
+                    action_val = action
+
+                next_obs, reward, done, info = env.step(action_val)
+                
+                demonstration['observes'].append(obs)
+                demonstration['actions'].append(action_val)
+                demonstration['rewards'].append(reward)
+                demonstration['dones'].append(done)
+                demonstration['infos'].append(info)
+                
+                total_reward += reward
+                obs = next_obs
+            
+            demonstrations.append(demonstration)
+        return demonstrations
         
         
